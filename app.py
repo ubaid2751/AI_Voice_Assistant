@@ -1,10 +1,7 @@
-import yaml
 import os
 from datetime import datetime
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
-
-ChatPromptTemplate
 
 template = """
 You are a highly intelligent, knowledgeable, and empathetic assistant designed to provide accurate and helpful answers to user queries.
@@ -20,80 +17,61 @@ Question: {question}
 ====================
 
 Instructions for responses:
-1. If the query involves generating or writing code, respond **only** in YAML format.
-2. Generate a well-structured YAML format with the following keys:
-    - "text": A concise explanation describing the purpose and functionality of the code.
-    - "code": The actual code snippet, included as a block literal (using the `|` syntax).
-    - "language_extension": The file extension for the code (e.g., ".py" for Python, ".cpp" for C++).
-    - "filename": The desired name of the file (without the extension).
+1. If the query involves generating or writing code, respond **only** in the following format:
+    filename: "<desired filename>"
+    code: "<generated code>"
 
-The YAML response should adhere to this structure:
-text: "This script demonstrates the requested functionality."
-code: |
-  def add(a, b):
-      return a + b
-
-  print(add(5, 3))
-language_extension: ".py"
-filename: "example"
-
-Instructions for general queries:
-1. Provide a concise and accurate response based on the question and context.
-2. Maintain a professional tone and ensure clarity in the explanation.
-3. If the question is unclear or incomplete, ask for clarification.
-4. Offer additional examples or suggestions if it helps in better understanding.
+    The `filename` is the name of the file you want to create, and `code` should be the generated code (as a string).
+2. For other types of queries, provide a concise response based on the question and context.
 
 Additional features:
 1. Manage conversational context, ensuring only the last 10 exchanges are retained for relevance.
-2. Save YAML responses to timestamped files for record-keeping.
-3. Automatically write the code snippet from the YAML response to a file using the specified filename and extension.
+2. Save responses to timestamped files for record-keeping.
+3. Automatically write the code snippet from the response to a file using the specified filename.
 
 Your response:
 """
 
 prompt = ChatPromptTemplate.from_template(template)
-model = OllamaLLM(model="llama3.2:latest")
+model = OllamaLLM(model="llama3.2")
 chain = prompt | model
 
-def save_yaml_response(response, directory="tmp"):
-    """Save the YAML response to a file."""
+def save_custom_response(response, directory="tmp"):
     os.makedirs(directory, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = os.path.join(directory, f"response_{timestamp}.yaml")
-
+    filename = os.path.join(directory, f"response_{timestamp}.txt")
+    
+    lst = os.listdir(directory)
+    num_files = len(lst)
+    if num_files >= 10:
+        for file in lst:
+            os.remove(os.path.join(directory, file))
+    
     with open(filename, "w", encoding="utf-8") as file:
         file.write(response)
-
-    print(f"YAML response saved to {filename}")
+    print(f"Response saved to {filename}")
     return filename
 
-def read_and_write_code(yaml_file):
+def read_and_write_code(response):
     try:
-        with open(yaml_file, "r", encoding="utf-8") as file:
-            yaml_obj = yaml.safe_load(file)
-
-        filename = f"{yaml_obj['filename']}{yaml_obj['language_extension']}"
-        with open(filename, "w", encoding="utf-8") as code_file:
-            code_file.write(yaml_obj['code'])
-
-        print(f"Code successfully written to {filename}")
-    except (yaml.YAMLError, KeyError) as e:
-        print(f"Error processing YAML: {e}")
+        lines = response.strip().splitlines()
+        filename_line = lines[0].split(":")[1].strip().strip('"')
+        code_lines = "\n".join(lines[1:]).strip()
+        with open(filename_line, "w", encoding="utf-8") as code_file:
+            code_file.write(code_lines)
+        print(f"Code successfully written to {filename_line}")
+    except Exception as e:
+        print(f"Error processing the custom format: {e}")
 
 def handle_conv():
     context = []
     MAX_CONTEXT_LENGTH = 10
-
     print("Welcome to the chatbot! Type 'exit' to end the conversation.")
-
     while True:
         user_input = input("You: ")
         if user_input.lower() == "exit":
             break
-
-        formatted_context = "\n".join(
-            [f"User: {item['User']}\nBot: {item['Bot']}" for item in context]
-        )
+        formatted_context = "\n".join([f"User: {item['User']}\nBot: {item['Bot']}" for item in context])
         response = ""
         for ans in chain.stream({
             "context": formatted_context,
@@ -101,15 +79,11 @@ def handle_conv():
         }):
             print(ans, end="")
             response += ans
-
         print()
-
-        if response.strip().startswith("text:"):
-            yaml_file = save_yaml_response(response)
-            read_and_write_code(yaml_file)
-
+        if response.strip().startswith("filename:"):
+            response_file = save_custom_response(response)
+            read_and_write_code(response)
         context.append({"User": user_input, "Bot": response})
-
         if len(context) > MAX_CONTEXT_LENGTH:
             context = context[-MAX_CONTEXT_LENGTH:]
 
