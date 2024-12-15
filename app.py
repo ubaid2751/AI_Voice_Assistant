@@ -2,30 +2,6 @@ import os
 from datetime import datetime
 from langchain_ollama import OllamaLLM
 from langchain_core.prompts import ChatPromptTemplate
-import chromadb
-import ollama
-
-client = chromadb.Client()
-
-message_history = [
-    {
-        'id': 1,
-        'prompt': 'What is my name?',
-        'response': 'Your name is Ubaid Abbas, know as Ubbu.'
-    },
-    {
-        'id': 2,
-        'prompt': 'When was the Great Wall of China built?',
-        'response': 'The Great Wall of China was built in 791 BC.'
-    },
-    {
-        'id': 3,
-        'prompt': 'What is the capital of France?',
-        'response': 'The capital of France is Paris.'
-    }
-] 
-
-MAX_CONTEXT_LENGTH = 10
 
 class bcolors:
     HEADER = '\033[95m'
@@ -44,11 +20,6 @@ You are a highly intelligent, knowledgeable, and empathetic assistant designed t
 Here is the conversation so far:
 ====================
 {convo}
-====================
-
-Here is the context of the conversation so far:
-====================
-{context}
 ====================
 
 Based on the context above, answer the following question:
@@ -74,7 +45,7 @@ Your response:
 """
 
 prompt = ChatPromptTemplate.from_template(template)
-model = OllamaLLM(model="phi3")
+model = OllamaLLM(model="llama3.2")
 chain = prompt | model
 
 def save_response(response, directory="tmp"):
@@ -102,60 +73,37 @@ def rnw_code(response):
         print(f"Code successfully written to {filename_line}")
     except Exception as e:
         print(f"Error processing the custom format: {e}")
-        
-def stream_response(prompt, convo, context):
-    convo.append({'role': 'user', 'content': prompt})
-    print(f"{bcolors.ENDC}", end="")
-
-    response = ""
-    print(f"{bcolors.OKGREEN}BOT: {bcolors.ENDC}", end="")
-    for ans in chain.stream({
-        "convo": "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in convo]),
-        "context": context,
-        "question": prompt,
-    }):
-        print(f"{bcolors.OKGREEN}{ans}", end="")
-        response += ans
-    
-    convo.append({'role': 'bot', 'content': response})
-    print(f"{bcolors.ENDC}")
-    if response.strip().startswith("filename:"):
-        save_response(response)
-        rnw_code(response)
-    context.append({"User": prompt, "Bot": response})
-    if len(context) > MAX_CONTEXT_LENGTH:
-        context = context[-MAX_CONTEXT_LENGTH:]
-
-def create_vector_db(conversations):
-    vector_db_name = 'conversations'
-    
-    try:
-        client.delete_collection(name=vector_db_name)
-    except ValueError:
-        pass
-    
-    vector_db = client.create_collection(name=vector_db_name)
-    for c in conversations:
-        serialized_convo = f'prompt: {c['prompt']} response: {c['response']}'
-        response = ollama.embeddings(model='nomic-embed-text', prompt=serialized_convo)
-        embedding = response['embedding']
-        
-        vector_db.add(
-            ids=[str(c['id'])],
-            embeddings=[embedding],
-            documents=[serialized_convo]
-        )
 
 def handle_conv():
     convo = []
     context = []
-    create_vector_db(conversations=message_history)
+    MAX_CONTEXT_LENGTH = 10
     print("Welcome to the chatbot! Type 'exit' to end the conversation.")
     while True:
         user_input = input(f"{bcolors.OKCYAN}You: ")
+        convo.append({'role': 'user', 'content': user_input})
+        print(f"{bcolors.ENDC}", end="")
         if user_input.lower() == "exit":
             break
-        stream_response(user_input, convo, context)
+    
+        response = ""
+        print(f"{bcolors.OKGREEN}BOT: {bcolors.ENDC}", end="")
+        for ans in chain.stream({
+            # "context": context,
+            "convo": "\n".join([f"{msg['role'].capitalize()}: {msg['content']}" for msg in convo]),
+            "question": user_input,
+        }):
+            print(f"{bcolors.OKGREEN}{ans}", end="")
+            response += ans
         
+        convo.append({'role': 'bot', 'content': response})
+        print(f"{bcolors.ENDC}")
+        if response.strip().startswith("filename:"):
+            save_response(response)
+            rnw_code(response)
+        context.append({"User": user_input, "Bot": response})
+        if len(context) > MAX_CONTEXT_LENGTH:
+            context = context[-MAX_CONTEXT_LENGTH:]
+
 handle_conv()
 print(f"{bcolors.ENDC}")
